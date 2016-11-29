@@ -170,8 +170,8 @@
      * @param txt      - text string
      * @param conWidth - container width
      */
-    var justify = function ($el, txt, conWidth) {
-        txt = $.trim(txt);
+    var justify = function (el, txt, conWidth) {
+        txt = txt.trim();
         var words = txt.split(' ').length;
         txt = txt + ' ';
 
@@ -181,17 +181,20 @@
         }
 
         // Find width of text in the DOM
-        var tmp = $('<span></span>').html(txt);
-        $el.append(tmp);
-        var size = tmp.width();
-        tmp.remove();
+        var tmp = document.createElement('span');
+        tmp.innerHTML = txt;
+        el.appendChild(tmp);
+        var size = tmp.offsetWidth;
+        tmp.parentNode.removeChild(tmp);
 
         // Figure out our word spacing and return the element
         var wordSpacing = Math.floor((conWidth - size) / (words - 1));
-        tmp.css('word-spacing', wordSpacing + 'px')
-            .attr('data-owner', 'balance-text');
+        tmp.style.wordSpacing = wordSpacing + 'px';
+        tmp.setAttribute('data-owner', 'balance-text');
 
-        return $('<div></div>').append(tmp).html();
+        var div = document.createElement('div');
+        div.appendChild(tmp);
+        return div.innerHTML;
     };
 
     /**
@@ -413,7 +416,7 @@
                 // Break string
                 lineText = remainingText.substr(0, splitIndex);
                 if (shouldJustify) {
-                    newText += justify($this, lineText, containerWidth);
+                    newText += justify(el, lineText, containerWidth);
                 } else {
                     newText += lineText.replace(/\s$/, "");
                     newText += '<br data-owner="balance-text" />';
@@ -427,9 +430,9 @@
             }
 
             if (shouldJustify) {
-                $this.html(newText + justify($this, remainingText, containerWidth));
+                el.innerHTML = newText + justify(el, remainingText, containerWidth);
             } else {
-                $this.html(newText + remainingText);
+                el.innerHTML = newText + remainingText;
             }
         }
 
