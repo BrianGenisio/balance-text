@@ -55,8 +55,28 @@
  * http://unscriptable.com/index.php/2009/03/20/debouncing-javascript-methods/
  *
  */
-(function ($, sr) {
+
+(function ($) {
     "use strict";
+
+    function ready(fn) {
+        if (document.readyState != 'loading'){
+            fn();
+        } else {
+            document.addEventListener('DOMContentLoaded', fn);
+        }
+    }
+
+    function trigger(el, event, data) {
+        if (window.CustomEvent) {
+            var event = new CustomEvent(event, {detail: data});
+        } else {
+            var event = document.createEvent('CustomEvent');
+            event.initCustomEvent(event, true, true, data);
+        }
+
+        el.dispatchEvent(event);
+    }
 
     var debounce = function (func, threshold, execAsap) {
         var timeout;
@@ -80,13 +100,11 @@
     };
 
     // smartresize
-    jQuery.fn[sr] = function (fn) {  return fn ? this.bind('resize', debounce(fn)) : this.trigger(sr); };
-
-}(jQuery, 'smartresize'));
-
-
-(function ($) {
-    "use strict";
+    function smartresize(fn) {
+        return fn ?
+            window.addEventListener('resize', debounce(fn)) :
+            trigger(window, "smartresize"); 
+    }
 
     var style = document.documentElement.style,
         hasTextWrap = (style.textWrap || style.WebkitTextWrap || style.MozTextWrap || style.MsTextWrap || style.OTextWrap),
@@ -118,16 +136,19 @@
         return wsMatches.indexOf(index) !== -1;
     };
 
-    var removeTags = function ($el) {
-        $el.find('br[data-owner="balance-text"]').replaceWith(" ");
-        var $span = $el.find('span[data-owner="balance-text"]');
-        if ($span.length > 0) {
+    var removeTags = function (el) {
+        var brs = nodeListAsArray(el.querySelectorAll('br[data-owner="balance-text"]'));
+        brs.forEach(br => br.outerHTML = " ");
+
+        var spans = nodeListAsArray(el.querySelectorAll('span[data-owner="balance-text"]'));
+        if (spans.length > 0) {
             var txt = "";
-            $span.each(function () {
-                txt += $(this).text();
-                $(this).remove();
+            spans.forEach(span => {
+                txt += span.textContent;
+                span.parentNode.removeChild(span)
             });
-            $el.html(txt);
+            el.innerHTML = txt;
+            console.log(txt);
         }
     };
 
@@ -135,10 +156,10 @@
      * Checks to see if we should justify the balanced text with the
      * element based on the textAlign property in the computed CSS
      *
-     * @param $el        - $(element)
+     * @param el        - $(element)
      */
-    var isJustified = function ($el) {
-        style = $el.get(0).currentStyle || window.getComputedStyle($el.get(0), null);
+    var isJustified = function (el) {
+        style = el.currentStyle || window.getComputedStyle(el, null);
         return (style.textAlign === 'justify');
     };
 
@@ -195,7 +216,7 @@
      * to the corresponding index and line width (from the start of
      * txt to ret.index).
      *
-     * @param $el      - $(element)
+     * @param el      - element
      * @param txt      - text string
      * @param conWidth - container width
      * @param desWidth - desired width
@@ -204,7 +225,7 @@
      * @param ret      - return object; index and width of previous/next break
      *
      */
-    var findBreakOpportunity = function ($el, txt, conWidth, desWidth, dir, c, ret) {
+    var findBreakOpportunity = function (el, txt, conWidth, desWidth, dir, c, ret) {
         var w;
         if (txt && typeof txt === 'string') {
             for(;;) {
@@ -212,8 +233,8 @@
                     c += dir;
                 }
 
-                $el.html(txt.substr(0, c));
-                w = $el.width();
+                el.innerHTML = txt.substr(0, c);
+                w = el.offsetWidth;
 
                 if ((dir < 0)
                         ? ((w <= desWidth) || (w <= 0) || (c === 0))
@@ -235,7 +256,7 @@
      * @param h         - height
      *
      */
-    var getSpaceWidth = function ($el, h) {
+    var getSpaceWidth = function (el, h) {
         var container = document.createElement('div');
 
         container.style.display = "block";
@@ -256,8 +277,8 @@
 
         container.appendChild(space);
 
-        $el.append(container);
-
+        el.appendChild(container)
+        
         var dims = space.getBoundingClientRect();
         container.parentNode.removeChild(container);
 
@@ -270,14 +291,18 @@
     // calling $.balanceText(elements) adds "elements" to this list.
     var watching = {
         sel: ['.balance-text'], // default class to watch
-        $el: $()
+        el: []
     };
+
+    function nodeListAsArray(nodeList) {
+        return nodeList ? Array.prototype.slice.call(nodeList) : [];
+    }
 
     // Call the balanceText plugin on elements that it's watching.
     var applyBalanceText = function () {
-        watching.$el
-            .add(watching.sel.join(','))
-            .balanceText();
+        var selectedElements = document.querySelectorAll(watching.sel.join(','));
+        var elements = watching.el.concat(nodeListAsArray(selectedElements));
+        balanceText(elements);
     };
 
     $.fn.balanceTextUpdate = applyBalanceText;
@@ -287,14 +312,147 @@
         if (typeof elements === 'string') {
             watching.sel.push(elements);
         } else {
-            watching.$el = watching.$el.add(elements);
+            watching.el.push(elements);
         }
-        $(elements).balanceText();
+
+        applyBalanceText();
     };
 
     // When a browser has native support for the text-wrap property,
     // the text balanceText plugin will let the browser handle it natively,
     // otherwise it will apply its own text balancing code.
+    function _balanceText(el) {
+        var $this = $(el);
+
+        // In a lower level language, this algorithm takes time
+        // comparable to normal text layout other than the fact
+        // that we do two passes instead of one, so we should
+        // be able to do without this limit.
+        var maxTextWidth = 5000;
+
+        removeTags(el);                        // strip balance-text tags
+
+        // save settings
+        var oldWS = el.style.whiteSpace;
+        var oldFloat = el.style.float;
+        var oldDisplay = el.style.display;
+        var oldPosition = el.style.position;
+        var oldLH = el.style.lineHeight;
+
+        // remove line height before measuring container size
+        el.style.lineHeight = 'normal';
+
+        var containerWidth = el.offsetWidth;
+        var containerHeight = el.offsetHeight;
+
+        // temporary settings
+        el.style.whiteSpace = 'nowrap';
+        el.style.float = 'none';
+        el.style.display = 'inline';
+        el.style.position = 'static';
+
+        var nowrapWidth = el.offsetWidth;
+        var nowrapHeight = el.offsetHeight;
+
+        // An estimate of the average line width reduction due
+        // to trimming trailing space that we expect over all
+        // lines other than the last.
+
+        var spaceWidth = ((oldWS === 'pre-wrap') ? 0 : getSpaceWidth(el, nowrapHeight));
+
+        if (containerWidth > 0 &&                  // prevent divide by zero
+                nowrapWidth > containerWidth &&    // text is more than 1 line
+                nowrapWidth < maxTextWidth) {      // text is less than arbitrary limit (make this a param?)
+
+            var remainingText = el.innerHTML;
+            var newText = "";
+            var lineText = "";
+            var shouldJustify = isJustified(el);
+            var totLines = Math.round(containerHeight / nowrapHeight);
+            var remLines = totLines;
+
+            // Determine where to break:
+            while (remLines > 1) {
+
+                // clear whitespace match cache for each line
+                wsMatches = null;
+
+                var desiredWidth = Math.round((nowrapWidth + spaceWidth) / remLines - spaceWidth);
+
+                // Guessed char index
+                var guessIndex = Math.round((remainingText.length + 1) / remLines) - 1;
+
+                var le = new NextWS_params();
+
+                // Find a breaking space somewhere before (or equal to) desired width,
+                // not necessarily the closest to the desired width.
+                findBreakOpportunity(el, remainingText, containerWidth, desiredWidth, -1, guessIndex, le);
+
+                // Find first breaking char after (or equal to) desired width.
+                var ge = new NextWS_params();
+                guessIndex = le.index;
+                findBreakOpportunity(el, remainingText, containerWidth, desiredWidth, +1, guessIndex, ge);
+
+                // Find first breaking char before (or equal to) desired width.
+                le.reset();
+                guessIndex = ge.index;
+                findBreakOpportunity(el, remainingText, containerWidth, desiredWidth, -1, guessIndex, le);
+
+                // Find closest string to desired length
+                var splitIndex;
+                if (le.index === 0) {
+                    splitIndex = ge.index;
+                } else if ((containerWidth < ge.width) || (le.index === ge.index)) {
+                    splitIndex = le.index;
+                } else {
+                    splitIndex = ((Math.abs(desiredWidth - le.width) < Math.abs(ge.width - desiredWidth))
+                                        ? le.index
+                                        : ge.index);
+                }
+
+                // Break string
+                lineText = remainingText.substr(0, splitIndex);
+                if (shouldJustify) {
+                    newText += justify($this, lineText, containerWidth);
+                } else {
+                    newText += lineText.replace(/\s$/, "");
+                    newText += '<br data-owner="balance-text" />';
+                }
+                remainingText = remainingText.substr(splitIndex);
+
+                // update counters
+                remLines--;
+                el.innerHTML = remainingText;
+                nowrapWidth = el.offsetWidth;
+            }
+
+            if (shouldJustify) {
+                $this.html(newText + justify($this, remainingText, containerWidth));
+            } else {
+                $this.html(newText + remainingText);
+            }
+        }
+
+        // restore settings
+        el.style.whiteSpace = oldWS;
+        el.style.float = oldFloat;
+        el.style.display = oldDisplay;
+        el.style.position = oldPosition;
+        el.style.lineHeight = oldLH;
+    }
+
+    function balanceText(elements) {
+        if (hasTextWrap) {
+            // browser supports text-wrap, so do nothing
+            return this;
+        }
+
+        return elements.forEach(function (el) {
+            _balanceText(el);
+        });
+    }
+
+
     $.fn.balanceText = function () {
         if (hasTextWrap) {
             // browser supports text-wrap, so do nothing
@@ -302,7 +460,9 @@
         }
 
         return this.each(function () {
-            var $this = $(this);
+            _balanceText(this);
+            
+            /*var $this = $(this);
 
             // In a lower level language, this algorithm takes time
             // comparable to normal text layout other than the fact
@@ -420,16 +580,16 @@
             this.style.float = oldFloat;
             this.style.display = oldDisplay;
             this.style.position = oldPosition;
-            this.style.lineHeight = oldLH;
+            this.style.lineHeight = oldLH;*/
         });
     };
 
 
 
     // Apply on DOM ready
-    $(window).ready(applyBalanceText);
+    ready(applyBalanceText);
 
     // Reapply on resize
-    $(window).smartresize(applyBalanceText);
+    smartresize(applyBalanceText);
 
 }(jQuery));
