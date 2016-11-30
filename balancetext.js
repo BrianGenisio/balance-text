@@ -54,10 +54,24 @@
  *
  * http://unscriptable.com/index.php/2009/03/20/debouncing-javascript-methods/
  *
+ * Tested to work on (lowest browser):
+ * - Sarari 4
+ * - Chrome 16
+ * - Firefox 10
+ * - IE 9
+ * - Edge 13
  */
 
 window.balanceText = (function () {
     "use strict";
+
+    function isArray(arg) {
+        if (Array.isArray) {
+            return Array.isArray(arg);
+        }
+
+        return Object.prototype.toString.call(arg) === '[object Array]';
+    }
 
     function ready(fn) {
         if (document.readyState != 'loading'){
@@ -319,7 +333,7 @@ window.balanceText = (function () {
             elements = nodeListAsArray(elements);
         }
 
-        if (!Array.isArray(elements)) {
+        if (!isArray(elements)) {
             elements = [elements];
         }
 
@@ -475,9 +489,6 @@ window.balanceText = (function () {
     }
 
     function initHandlers() {
-        window.addEventListener('resize', function() {
-            console.log("resize");
-        });
         // Apply on DOM ready
         ready(applyBalanceText);
 
